@@ -24,6 +24,7 @@ fn flatten<T, const N: usize>(v: Vec<Vec<[T; N]>>) -> Vec<T> {
 pub struct FfmpegRenderer {
     pub ffmpeg: Child,
     pub framebuffer: Vec<Pixel>,
+    pub size: (usize, usize),
 }
 
 impl FfmpegRenderer {
@@ -50,15 +51,17 @@ impl FfmpegRenderer {
         .spawn()
         .unwrap();
         println!("spawn");
-        return FfmpegRenderer {ffmpeg: child, framebuffer: vec![Pixel {red: 0, green: 0, blue: 0}; w*h] }
+        return FfmpegRenderer {ffmpeg: child, framebuffer: vec![Pixel {red: 0, green: 0, blue: 0}; w*h], size: (w, h) }
     }
     pub fn write_framebuffer(&mut self) {
         let stdin = self.ffmpeg.stdin.as_mut().unwrap();
         let flattened: Vec<u8> = <Vec<Pixel> as Clone>::clone(&self.framebuffer).into_iter().flatten().collect();
         let _ = stdin.write_all(&flattened);
     }
-    pub fn update_framebuffer(&mut self, x: usize, y: usize, pixel: Pixel) {
-        self.framebuffer[(x-1)*120+(y-1)] = pixel
+    pub fn update_framebuffer(&mut self, x: isize, y: isize, pixel: Pixel) {
+        if x <= self.size.1.try_into().unwrap() && y <= self.size.0.try_into().unwrap() && y > 0 && x > 0 {
+            self.framebuffer[(x as usize-1)*self.size.0+(y as usize-1) as usize] = pixel
+        }
     }
     pub fn clear_framebuffer(&mut self) {
         for p in self.framebuffer.iter_mut() {
