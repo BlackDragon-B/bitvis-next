@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use mpris::{Metadata, Player, PlayerFinder};
 
 pub struct Mpris {
@@ -14,8 +16,20 @@ impl Mpris {
         }
     }
 
+    pub fn get_progress(&mut self) -> Result<Duration, &str> {
+        let res: Result<Duration, &str> = match &self.player {
+            Some(player) => {
+                match player.get_position() {
+                    Ok(O) => Ok(O),
+                    Err(E) => Err("Failed to get player position"),
+                }
+            },
+            None => Err("Failed to get player position"),
+        };
+        res
+    }
     pub fn get_metadata(&mut self) -> Result<Metadata, &'static str> {
-        // match &self.player {
+        // match &self.player { 
         //     Some(player) => {
         //         match player.get_metadata() {
         //             Ok(T) => self.metadata = Some(T),

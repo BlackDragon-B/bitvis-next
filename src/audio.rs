@@ -1,104 +1,66 @@
-use std::io;
+use std::thread;
 
-pub fn start() {
-    println!("Hello, world!");
-    let (client, _status) = jack::Client::new("bitvis-next", jack::ClientOptions::NO_START_SERVER).unwrap();
+use audioviz::io::{Device, Input, InputController};
+use audioviz::spectrum::{
+    config::{Interpolation, ProcessorConfig, StreamConfig},
+    stream::Stream,
+    Frequency,
+};
 
-    let inp = client.register_port("in", jack::AudioIn::default()).unwrap();
-    
-    let process_callback = move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
-        let inp_b = inp.as_slice(ps);
-        println!("{:?}",inp_b.len());
-        jack::Control::Continue
-    };
-
-    let process = jack::ClosureProcessHandler::new(process_callback);
-    let active_client = client.activate_async(Notifications, process).unwrap();
-
-    println!("Press enter/return to quit...");
-    let mut user_input = String::new();
-    io::stdin().read_line(&mut user_input).ok();
-
-    active_client.deactivate().unwrap();
-
+pub struct ADev {
+    stream: Stream,
+    audio_receiver: InputController,
+    channel_count: u16,
 }
+impl ADev {
+    pub fn start() -> ADev {
+        let mut audio_input = Input::new();
+        let devices = audio_input.fetch_devices().unwrap();
+        for (id, device) in devices.iter().enumerate() {
+            println!("{id}\t{device}");
+        }
+        let (channel_count, _sampling_rate, audio_receiver) = audio_input.init(&Device::Id(4), Some(1024)).expect("AAA");
 
-struct Notifications;
-
-impl jack::NotificationHandler for Notifications {
-    fn thread_init(&self, _: &jack::Client) {
-        println!("JACK: thread init");
+        let stream_config: StreamConfig = StreamConfig {
+            channel_count: 1,
+            gravity: Some(2.0),
+            fft_resolution: 1024 * 3,
+            processor: ProcessorConfig {
+                frequency_bounds: [35, 20_000],
+                interpolation: Interpolation::Cubic,
+                volume: 0.4,
+                resolution: None,
+                ..ProcessorConfig::default()
+            },
+            ..StreamConfig::default()
+        };
+        println!("CC {:?}",channel_count);
+        return ADev { stream: Stream::new(stream_config), audio_receiver, channel_count }
     }
+    pub fn get_spectrum(&mut self) -> Vec<Frequency> {
+        if let Some(new_data) = self.audio_receiver.pull_data() {
+            self.stream.push_data(new_data);
+        }
 
-    fn shutdown(&mut self, status: jack::ClientStatus, reason: &str) {
-        println!("JACK: shutdown with status {status:?} because \"{reason}\"",);
-    }
+        self.stream.update();
 
-    fn freewheel(&mut self, _: &jack::Client, is_enabled: bool) {
-        println!(
-            "JACK: freewheel mode is {}",
-            if is_enabled { "on" } else { "off" }
-        );
-    }
-
-    fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
-        println!("JACK: sample rate changed to {srate}");
-        jack::Control::Continue
-    }
-
-    fn client_registration(&mut self, _: &jack::Client, name: &str, is_reg: bool) {
-        println!(
-            "JACK: {} client with name \"{}\"",
-            if is_reg { "registered" } else { "unregistered" },
-            name
-        );
-    }
-
-    fn port_registration(&mut self, _: &jack::Client, port_id: jack::PortId, is_reg: bool) {
-        println!(
-            "JACK: {} port with id {}",
-            if is_reg { "registered" } else { "unregistered" },
-            port_id
-        );
-    }
-
-    fn port_rename(
-        &mut self,
-        _: &jack::Client,
-        port_id: jack::PortId,
-        old_name: &str,
-        new_name: &str,
-    ) -> jack::Control {
-        println!("JACK: port with id {port_id} renamed from {old_name} to {new_name}",);
-        jack::Control::Continue
-    }
-
-    fn ports_connected(
-        &mut self,
-        _: &jack::Client,
-        port_id_a: jack::PortId,
-        port_id_b: jack::PortId,
-        are_connected: bool,
-    ) {
-        println!(
-            "JACK: ports with id {} and {} are {}",
-            port_id_a,
-            port_id_b,
-            if are_connected {
-                "connected"
+        let frequencies: Vec<Vec<Frequency>> = self.stream.get_frequencies();
+        let frequencies: Vec<Frequency> = if frequencies.len() >= 2 {
+            let mut buf: Vec<Frequency> = Vec::new();
+            // left
+            let mut left = frequencies[0].clone();
+            left.reverse();
+            buf.append(&mut left);
+            // right
+            buf.append(&mut frequencies[1].clone());
+            buf
+        } else {
+            if frequencies.len() == 1 {
+                frequencies[0].clone()
             } else {
-                "disconnected"
+                Vec::new()
             }
-        );
-    }
-
-    fn graph_reorder(&mut self, _: &jack::Client) -> jack::Control {
-        println!("JACK: graph reordered");
-        jack::Control::Continue
-    }
-
-    fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        println!("JACK: xrun occurred");
-        jack::Control::Continue
-    }
+        };
+        return frequencies;
+    }//HAHA MY ASS
 }
